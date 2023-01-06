@@ -230,4 +230,4 @@ def generate_password_reset_link(management_token: str, email: str):
 token = get_management_token()
 admin_token = get_admin_token()
 
-generate_password_reset_link(token, "sidhantasharma41@gmail.com")
+generate_password_reset_link(token, "fakeemail@gmail.com")
