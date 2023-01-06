@@ -3,9 +3,11 @@ import json
 from typing import List
 from dotenv import dotenv_values
 import requests
+import time
+import csv
 
 
-def get_token():
+def get_management_token():
     config = dotenv_values(".env")
 
     conn = http.client.HTTPSConnection(config["CONN_URL"])
@@ -23,6 +25,25 @@ def get_token():
     data = json.loads(res.read().decode("utf-8"))
 
     return data["access_token"]
+
+
+def get_admin_token():
+    config = dotenv_values(".env")
+    url = "https://" + config["CONN_URL"] + "/oauth/token"
+    payload = json.dumps(
+        {
+            "client_id": config["ADMIN_CLIENT_ID"],
+            "client_secret": config["ADMIN_CLIENT_SECRET"],
+            "audience": config["ADMIN_AUDIENCE"],
+            "grant_type": "client_credentials",
+        }
+    )
+
+    headers = {"content-type": "application/json"}
+
+    response = requests.request("POST", url, headers=headers, data=payload).json()
+
+    return response["access_token"]
 
 
 def generate_password(
@@ -77,14 +98,12 @@ def get_users_from_csv(csv_file: str):
 def create_users_json(token: str, accounts: List[dict], connection_id: str):
     accounts_list = []
     for account in accounts:
-        password = generate_password()
         user_obj = {
             "email": account["Email"],
             "email_verified": True,
             "given_name": account["First Name"],
             "family_name": account["Last Name"],
-            "password": password,
-            "app_metadata": {"roles": ["User"]},
+            "app_metadata": {"roles": ["Hacker"]},
         }
 
         accounts_list.append(user_obj)
@@ -106,14 +125,33 @@ def create_users_json(token: str, accounts: List[dict], connection_id: str):
     return response.text
 
 
-def attach_role(token: str, users: List[str], role: str):
+def get_auth0_users(token: str, page: int):
     config = dotenv_values(".env")
+    url = "https://" + config["CONN_URL"] + "/api/v2/users"
+    headers = {"authorization": f"Bearer {token}"}
+    data = {"q": {"app_metadata.roles: Hacker"}, "page": page}
+    users = requests.request("GET", url, headers=headers, params=data).json()
+    userList = []
 
+    for user in users:
+        userList.append(
+            {
+                "auth0ID": user["user_id"],
+                "email": user["email"],
+                "firstName": user["given_name"],
+                "lastName": user["family_name"],
+            }
+        )
+
+    return userList
+
+
+def attach_role(token: str, users: List[dict], role: str):
+    config = dotenv_values(".env")
     conn = http.client.HTTPSConnection(config["CONN_URL"])
-
-    payload = f'{{"users": {json.dumps(users)}}}'
-
-    print(payload)
+    user_ids = [user["auth0ID"] for user in users]
+    print(user_ids)
+    payload = f'{{"users": {json.dumps(user_ids)}}}'
 
     headers = {"Authorization": f"Bearer {token}", "content-type": "application/json"}
 
@@ -124,19 +162,72 @@ def attach_role(token: str, users: List[str], role: str):
     return data
 
 
-token = get_token()
+def generate_accounts(admin_token: str, userList: List[dict]):
+    config = dotenv_values(".env")
+    url = config["API_ENDPOINT"] + "/hacker/bulkCreateHackers"
+    payload = json.dumps({"users": userList})
+    headers = {
+        "authorization": f"Bearer {admin_token}",
+        "content-type": "application/json",
+    }
 
-# print(attach_role(token, ["auth0|639a1e85a18a9231c701d5e0"], "rol_pXJ21VmBuPwJQjyE"))
+    response = requests.request("POST", url, headers=headers, data=payload)
 
-user_list = get_users_from_csv("TestData.csv")
-# print(create_account(token, user_list[0], generate_password()))
-print(create_users_json(token, user_list, "con_0blCoUfG5H8M1U4z"))
-# account_ids = []
-# for user in user_list:
-#     token = get_token()
-#     password = generate_password()
-#     data = create_account(token, user, password)
-#     try:
-#         account_ids.append(data["user_id"])
-#     except KeyError:
-#         print("Unable to Create Account")
+    return response.text
+
+
+def generate_email_list_data(management_token: str, userList: List[dict]):
+    config = dotenv_values(".env")
+    url = "https://" + config["CONN_URL"] + "/api/v2/tickets/password-change"
+    email_list_data = []
+    for user in userList:
+        payload = json.dumps(
+            {
+                "client_id": "1RiqNC6JvHgn7xre4mfScHJMEq75wlsq",
+                "user_id": user["auth0ID"],
+            }
+        )
+        headers = {
+            "authorization": f"Bearer {management_token}",
+            "content-type": "application/json",
+        }
+        response = requests.request("POST", url, headers=headers, data=payload).json()
+        user_email_data = {
+            "First Name": user["firstName"],
+            "Last Name": user["lastName"],
+            "Email Address": user["email"],
+            "Password Reset": response["ticket"],
+        }
+        email_list_data.append(user_email_data)
+        time.sleep(1)
+
+    return response["ticket"]
+
+
+def generate_password_reset_link(management_token: str, email: str):
+    config = dotenv_values(".env")
+    url = "https://" + config["CONN_URL"] + "/api/v2/users-by-email"
+    headers = {"authorization": f"Bearer {token}"}
+    data = {"email": email}
+    res = requests.request("GET", url, headers=headers, params=data).json()
+    auth0ID = res[0]["user_id"]
+
+    url = "https://" + config["CONN_URL"] + "/api/v2/tickets/password-change"
+    payload = json.dumps(
+        {
+            "client_id": config["ADMIN_CLIENT_ID"],
+            "user_id": auth0ID,
+        }
+    )
+    headers = {
+        "authorization": f"Bearer {management_token}",
+        "content-type": "application/json",
+    }
+    response = requests.request("POST", url, headers=headers, data=payload).json()
+    print(response["ticket"])
+
+
+token = get_management_token()
+admin_token = get_admin_token()
+
+generate_password_reset_link(token, "sidhantasharma41@gmail.com")
