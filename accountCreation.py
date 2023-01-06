@@ -183,7 +183,7 @@ def generate_email_list_data(management_token: str, userList: List[dict]):
     for user in userList:
         payload = json.dumps(
             {
-                "client_id": "1RiqNC6JvHgn7xre4mfScHJMEq75wlsq",
+                "client_id": config["ADMIN_CLIENT_ID"],
                 "user_id": user["auth0ID"],
             }
         )
